@@ -10,7 +10,7 @@ OWNER = "zhao-ng327"
 REPO = "FPS-YOLO"
 TARGET_DIR = "FPS-YOLO"  # 目標解壓縮與專案目錄
 
-def make_request(url, token, accept="application/vnd.github+json"):
+def makeRequest(url, token, accept="application/vnd.github+json"):
     headers = {
         "Authorization": f"Bearer {token}",
         "User-Agent": "AutoUpdater",
@@ -28,11 +28,11 @@ def main():
         print("[錯誤] Token 不能為空！")
         return
 
-    api_url = f"https://api.github.com/repos/{OWNER}/{REPO}/releases"
+    apiUrl = f"https://api.github.com/repos/{OWNER}/{REPO}/releases"
     print("\n正在連接 GitHub 驗證並查詢最新版本...")
 
     try:
-        req = make_request(api_url, token)
+        req = makeRequest(apiUrl, token)
         with urllib.request.urlopen(req) as response:
             releases = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
@@ -44,48 +44,45 @@ def main():
 
     print(f"成功獲取 Release 清單，共找到 {len(releases)} 個 Release。")
 
-    latest_main = None
-    latest_apex = None
+    latestMain = None
 
     for r in releases:
         tag = r.get("tag_name", "")
-        if not latest_main and tag.startswith("Main-ver."):
-            latest_main = r
-        if not latest_apex and tag.startswith("Apex-ver."):
-            latest_apex = r
-        if latest_main and latest_apex:
+        tagLower = tag.lower()
+        if tagLower.startswith("main-ver"):
+            latestMain = r
             break
 
     # 建立目標資料夾 FPS-YOLO
     os.makedirs(TARGET_DIR, exist_ok=True)
 
-    # 1. 處理 Main (原始碼 zip)
-    if not latest_main:
-        print("[錯誤] 找不到任何以 'Main-ver.' 開頭的 Release！")
+    # 處理 Main (原始碼 zip)
+    if not latestMain:
+        print("[錯誤] 找不到任何以 'Main-ver' 開頭的 Release！")
         return
 
-    main_tag = latest_main["tag_name"]
-    print(f"\n>>> 發現最新 Main: {main_tag}")
-    zip_url = f"https://api.github.com/repos/{OWNER}/{REPO}/zipball/{main_tag}"
-    zip_path = "main_temp.zip"
-    temp_dir = "main_temp_extract"
+    mainTag = latestMain["tag_name"]
+    print(f"\n>>> 發現最新 Main: {mainTag}")
+    zipUrl = f"https://api.github.com/repos/{OWNER}/{REPO}/zipball/{mainTag}"
+    zipPath = "main_temp.zip"
+    tempDir = "main_temp_extract"
 
     print(f"正在下載 Main 原始碼至 {TARGET_DIR}...")
     try:
-        req = make_request(zip_url, token)
-        with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as f:
+        req = makeRequest(zipUrl, token)
+        with urllib.request.urlopen(req) as resp, open(zipPath, "wb") as f:
             shutil.copyfileobj(resp, f)
 
         print(f"正在解壓縮 Main 並攤平至 {TARGET_DIR} 資料夾...")
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(temp_dir)
+        if os.path.exists(tempDir):
+            shutil.rmtree(tempDir)
+        with zipfile.ZipFile(zipPath, "r") as zf:
+            zf.extractall(tempDir)
 
         # GitHub zip 內層會包一層 root 資料夾，將其內容直接移至 FPS-YOLO
-        inner_root = os.path.join(temp_dir, os.listdir(temp_dir)[0])
-        for item in os.listdir(inner_root):
-            src = os.path.join(inner_root, item)
+        innerRoot = os.path.join(tempDir, os.listdir(tempDir)[0])
+        for item in os.listdir(innerRoot):
+            src = os.path.join(innerRoot, item)
             dst = os.path.join(TARGET_DIR, item)
             if os.path.isdir(src):
                 if os.path.exists(dst):
@@ -96,39 +93,18 @@ def main():
 
         print(f"Main 程式碼已成功佈署至 {TARGET_DIR}！")
     finally:
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
+        if os.path.exists(zipPath):
+            os.remove(zipPath)
+        if os.path.exists(tempDir):
+            shutil.rmtree(tempDir)
 
-    # 2. 處理 Apex (模型檔)
-    print("\n" + "=" * 45)
-    if not latest_apex:
-        print("[警告] 找不到任何以 'Apex-ver.' 開頭的 Release，跳過模型下載。")
-    else:
-        apex_tag = latest_apex["tag_name"]
-        print(f">>> 發現最新 Apex 模型: {apex_tag}")
-        assets = latest_apex.get("assets", [])
-        if not assets:
-            print(f"[警告] {apex_tag} 沒有附加任何檔案 (Assets)！")
-        else:
-            # 存放到 FPS-YOLO/Apex/src
-            apex_dir = os.path.join(TARGET_DIR, "Apex", "src")
-            os.makedirs(apex_dir, exist_ok=True)
+    # 建立 License.txt 並寫入 token
+    licensePath = os.path.join(TARGET_DIR, "License.txt")
+    with open(licensePath, "w", encoding="utf-8") as f:
+        f.write(token)
+    print(f"已建立 Authorization License 於 {licensePath}")
 
-            for asset in assets:
-                filename = asset["name"]
-                asset_url = asset["url"]
-                dest_file = os.path.join(apex_dir, filename)
-                print(f"正在下載模型: {filename}...")
-
-                req = make_request(asset_url, token, accept="application/octet-stream")
-                with urllib.request.urlopen(req) as resp, open(dest_file, "wb") as f:
-                    shutil.copyfileobj(resp, f)
-
-                print(f"模型已儲存至: {dest_file}")
-
-    print(f"\n所有項目已更新完成，檔案皆已存入 {TARGET_DIR} 目錄！")
+    print(f"\n更新完成，檔案皆已存入 {TARGET_DIR} 目錄！")
 
 if __name__ == "__main__":
     try:
